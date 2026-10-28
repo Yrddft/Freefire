@@ -139,11 +139,7 @@ class ApprovalView(discord.ui.View):
                         record["id"],
                     )
             await self.bot.storage.release_review(record["id"])
-            logger.error(
-                "Approval failed for record %s (%s).",
-                record["id"],
-                type(exc).__name__,
-            )
+            logger.exception("Approval failed for record %s.", record["id"])
             await interaction.followup.send(
                 "I couldn't finish approving this record. It remains pending; "
                 "please check the configured records channel and try again.",
