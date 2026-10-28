@@ -1,0 +1,17 @@
+[project]
+name = "repl-nix-workspace"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.13"
+dependencies = [
+    "asyncpg>=0.30,<1.0",
+    "discord-py>=2.6,<3.0",
+    "python-dotenv>=1.0,<2.0",
+]
+
+[project.scripts]
+repl-nix-workspace = "repl_nix_workspace:main"
+
+[build-system]
+requires = ["uv_build>=0.13.4,<0.14.0"]
+build-backend = "uv_build"

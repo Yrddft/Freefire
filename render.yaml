@@ -1,0 +1,28 @@
+services:
+  - type: worker
+    name: freefire-match-records-bot
+    runtime: python
+    region: singapore
+    plan: 0.5c-512mb
+    rootDir: bots/freefire-match-bot
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m freefire_bot
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.11"
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - key: APPROVAL_ROLE_ID
+        value: "1564884044205006849"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: freefire-match-records-db
+          property: connectionString
+
+databases:
+  - name: freefire-match-records-db
+    databaseName: freefire_match_records
+    user: freefire_bot
+    region: singapore
+    plan: 0.1c-256mb
+
