@@ -57,6 +57,10 @@ class ApprovalView(discord.ui.View):
         record: dict,
         interaction_message: discord.Message | None = None,
     ) -> bytes:
+        stored_screenshot = await self.bot.storage.get_screenshot_bytes(record["id"])
+        if stored_screenshot is not None:
+            return stored_screenshot
+
         channel_id = record.get("approval_channel_id")
         message_id = record.get("approval_message_id")
         if not channel_id or not message_id:
@@ -85,11 +89,21 @@ class ApprovalView(discord.ui.View):
                         and parsed_url.scheme == "https"
                         and parsed_url.hostname in DISCORD_CDN_HOSTS
                     ):
-                        return await asyncio.to_thread(
-                            _download_discord_cdn_image, image_url
-                        )
+                        try:
+                            return await asyncio.to_thread(
+                                _download_discord_cdn_image, image_url
+                            )
+                        except OSError as exc:
+                            logger.warning(
+                                "Could not download approval screenshot from "
+                                "Discord CDN (%s).",
+                                type(exc).__name__,
+                            )
 
-        raise RuntimeError("The screenshot is missing from the approval post.")
+        raise RuntimeError(
+            "The screenshot is unavailable. Re-upload it with "
+            "/record-edit using the screenshot option."
+        )
 
     @discord.ui.button(
         label="Approve",
