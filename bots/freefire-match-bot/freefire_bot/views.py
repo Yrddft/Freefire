@@ -28,6 +28,18 @@ class ApprovalView(discord.ui.View):
         super().__init__(timeout=None)
         self.bot = bot
 
+    async def _read_approval_screenshot(self, record: dict) -> bytes:
+        channel_id = record.get("approval_channel_id")
+        message_id = record.get("approval_message_id")
+        if not channel_id or not message_id:
+            raise RuntimeError("The approval post location has not been saved.")
+
+        approval_channel = await self.bot.resolve_text_channel(channel_id)
+        approval_message = await approval_channel.fetch_message(message_id)
+        if not approval_message.attachments:
+            raise RuntimeError("The screenshot is missing from the approval post.")
+        return await approval_message.attachments[0].read()
+
     @discord.ui.button(
         label="Approve",
         style=discord.ButtonStyle.success,
@@ -106,10 +118,7 @@ class ApprovalView(discord.ui.View):
             record_channel = await self.bot.resolve_text_channel(
                 settings["record_channel_id"]
             )
-            if not interaction.message.attachments:
-                raise RuntimeError("The screenshot is missing from the approval post.")
-
-            screenshot_bytes = await interaction.message.attachments[0].read()
+            screenshot_bytes = await self._read_approval_screenshot(record)
             screenshot = discord.File(
                 io.BytesIO(screenshot_bytes),
                 filename=record["screenshot_filename"],
@@ -142,7 +151,7 @@ class ApprovalView(discord.ui.View):
             logger.exception("Approval failed for record %s.", record["id"])
             await interaction.followup.send(
                 "I couldn't finish approving this record. It remains pending; "
-                "please check the configured records channel and try again.",
+                "the server administrator should check the bot's Render logs.",
                 ephemeral=True,
             )
             return
