@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
+from urllib.request import urlopen
 
 import discord
 
@@ -12,6 +15,27 @@ if TYPE_CHECKING:
     from .bot import MatchBot
 
 logger = logging.getLogger(__name__)
+MAX_DISCORD_SCREENSHOT_BYTES = 10 * 1024 * 1024
+DISCORD_CDN_HOSTS = {"cdn.discordapp.com", "media.discordapp.net"}
+
+
+def _download_discord_cdn_image(url: str) -> bytes:
+    parsed_url = urlparse(url)
+    if parsed_url.scheme != "https" or parsed_url.hostname not in DISCORD_CDN_HOSTS:
+        raise RuntimeError("The screenshot image is not hosted on Discord's CDN.")
+
+    with urlopen(url, timeout=20) as response:
+        final_url = urlparse(response.geturl())
+        if (
+            final_url.scheme != "https"
+            or final_url.hostname not in DISCORD_CDN_HOSTS
+        ):
+            raise RuntimeError("The screenshot URL redirected outside Discord's CDN.")
+        screenshot_bytes = response.read(MAX_DISCORD_SCREENSHOT_BYTES + 1)
+
+    if len(screenshot_bytes) > MAX_DISCORD_SCREENSHOT_BYTES:
+        raise RuntimeError("The screenshot is larger than 10 MiB.")
+    return screenshot_bytes
 
 
 def member_has_approval_role(interaction: discord.Interaction, role_id: int) -> bool:
@@ -28,7 +52,11 @@ class ApprovalView(discord.ui.View):
         super().__init__(timeout=None)
         self.bot = bot
 
-    async def _read_approval_screenshot(self, record: dict) -> bytes:
+    async def _read_approval_screenshot(
+        self,
+        record: dict,
+        interaction_message: discord.Message | None = None,
+    ) -> bytes:
         channel_id = record.get("approval_channel_id")
         message_id = record.get("approval_message_id")
         if not channel_id or not message_id:
@@ -36,9 +64,32 @@ class ApprovalView(discord.ui.View):
 
         approval_channel = await self.bot.resolve_text_channel(channel_id)
         approval_message = await approval_channel.fetch_message(message_id)
-        if not approval_message.attachments:
-            raise RuntimeError("The screenshot is missing from the approval post.")
-        return await approval_message.attachments[0].read()
+        messages = [approval_message]
+        if (
+            interaction_message is not None
+            and interaction_message.id != approval_message.id
+        ):
+            messages.append(interaction_message)
+
+        for message in messages:
+            if message.attachments:
+                return await message.attachments[0].read()
+
+        for message in messages:
+            for embed in message.embeds:
+                image = embed.image
+                for image_url in (image.url, image.proxy_url):
+                    parsed_url = urlparse(image_url) if image_url else None
+                    if (
+                        parsed_url is not None
+                        and parsed_url.scheme == "https"
+                        and parsed_url.hostname in DISCORD_CDN_HOSTS
+                    ):
+                        return await asyncio.to_thread(
+                            _download_discord_cdn_image, image_url
+                        )
+
+        raise RuntimeError("The screenshot is missing from the approval post.")
 
     @discord.ui.button(
         label="Approve",
@@ -118,7 +169,9 @@ class ApprovalView(discord.ui.View):
             record_channel = await self.bot.resolve_text_channel(
                 settings["record_channel_id"]
             )
-            screenshot_bytes = await self._read_approval_screenshot(record)
+            screenshot_bytes = await self._read_approval_screenshot(
+                record, interaction.message
+            )
             screenshot = discord.File(
                 io.BytesIO(screenshot_bytes),
                 filename=record["screenshot_filename"],
